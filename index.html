@@ -162,7 +162,7 @@ if ('serviceWorker' in navigator) {
     <div class="space-y-3">
       <div>
         <label class="text-sm text-gray-600 mb-1 block">订单编号 <span class="text-red-400">*</span></label>
-        <input id="createOrderNo" class="input" placeholder="输入订单编号">
+        <input id="createOrderNo" class="input" placeholder="输入订单编号" oninput="debounceAutoFill()">
       </div>
       <div>
         <label class="text-sm text-gray-600 mb-1 block">购买账号</label>
@@ -432,6 +432,42 @@ function showCreateModal() {
   document.getElementById('createModal').style.display = 'flex';
 }
 function hideCreateModal() { document.getElementById('createModal').style.display = 'none'; }
+
+// 自动匹配购买人
+let buyerCache = null;
+async function loadBuyerCache() {
+  if (buyerCache) return buyerCache;
+  const supabase = getSupabase();
+  if (!supabase) return {};
+  const { data } = await supabase.from('buyer_mapping').select('order_no,account');
+  buyerCache = {};
+  (data || []).forEach(d => { buyerCache[d.order_no] = d.account; });
+  return buyerCache;
+}
+
+let autoFillTimer;
+function debounceAutoFill() {
+  clearTimeout(autoFillTimer);
+  autoFillTimer = setTimeout(autoFillBuyer, 400);
+}
+
+async function autoFillBuyer() {
+  const orderNo = document.getElementById('createOrderNo').value.trim();
+  if (!orderNo || orderNo.length < 5) return;
+  // 如果购买账号已经手动填写，不覆盖
+  const accountInput = document.getElementById('createAccount');
+  if (accountInput.value.trim()) return;
+
+  const cache = await loadBuyerCache();
+  const account = cache[orderNo];
+  if (account) {
+    accountInput.value = account;
+    accountInput.style.background = '#f0fdf4';
+    setTimeout(() => accountInput.style.background = '', 1500);
+  }
+}
+// 预加载缓存
+loadBuyerCache();
 
 async function createOrder() {
   const orderNo = document.getElementById('createOrderNo').value.trim();

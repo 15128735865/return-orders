@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>退货订单管理</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+// Supabase CDN fallback
+if (typeof window.supabase === 'undefined') {
+  document.write('<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"><\/script>');
+}
+</script>
+<link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIumAgOi0p+iuouWNleeuoeeQhiIsCiAgInNob3J0X25hbWUiOiAi6YCA6LSn566h55CGIiwKICAic3RhcnRfdXJsIjogIi4iLAogICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiNmOGZhZmMiLAogICJ0aGVtZV9jb2xvciI6ICIjM2I4MmY2IiwKICAiaWNvbnMiOiBbewogICAgInNyYyI6ICJkYXRhOmltYWdlL3N2Zyt4bWwsPHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxMDAgMTAwJz48dGV4dCB5PScuOWVtJyBmb250LXNpemU9JzkwJz7wn5OmPC90ZXh0Pjwvc3ZnPiIsCiAgICAic2l6ZXMiOiAiMTkyeDE5MiIsCiAgICAidHlwZSI6ICJpbWFnZS9zdmcreG1sIgogIH1dfQ==">
+<meta name="theme-color" content="#3b82f6">
+<script>
+if ('serviceWorker' in navigator) {
+  const swCode = "self.addEventListener('install',e=>e.waitUntil(caches.open('v1').then(c=>c.addAll(['.']))));self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(resp=>{if(resp.ok){let r=resp.clone();caches.open('v1').then(c=>c.put(e.request,r))}return resp})))}))";
+  const blob = new Blob([swCode], { type: 'application/javascript' });
+  navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
+}
+</script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+  .badge-strategy-destroy { background: #fef2f2; color: #dc2626; }
+  .badge-strategy-pickup { background: #fffbeb; color: #d97706; }
+  .badge-strategy-self { background: #eff6ff; color: #2563eb; }
+  .badge-strategy-warehouse { background: #f0fdf4; color: #16a34a; }
+  .badge-status-default { background: #f1f5f9; color: #64748b; }
+  .badge-status-progress { background: #dbeafe; color: #2563eb; }
+  .badge-status-done { background: #dcfce7; color: #16a34a; }
+  .badge-status-warn { background: #fef3c7; color: #b45309; }
+  .btn { padding: 8px 18px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; border: none; transition: opacity 0.15s; }
+  .btn:hover { opacity: 0.85; }
+  .btn-primary { background: #3b82f6; color: #fff; }
+  .btn-danger { background: #ef4444; color: #fff; }
+  .btn-sm { padding: 5px 12px; font-size: 12px; border-radius: 6px; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 50; display: flex; align-items: center; justify-content: center; }
+  .modal { background: #fff; border-radius: 12px; padding: 24px; width: 90%; max-width: 480px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.15); }
+  .input { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; outline: none; box-sizing: border-box; }
+  .input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+  select.input { appearance: none; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M6 8L1 3h10z' fill='%239ca3af'/%3E%3C/svg%3E") no-repeat right 10px center; padding-right: 32px; }
+  .toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: #1e293b; color: #fff; padding: 14px 28px; border-radius: 10px; font-size: 15px; z-index: 100; animation: fadeIn 0.25s ease; pointer-events: none; }
+  @keyframes fadeIn { from { opacity: 0; transform: translate(-50%,-50%) scale(0.9); } to { opacity: 1; transform: translate(-50%,-50%) scale(1); } }
+  @media (max-width: 768px) {
+    .table-col { display: none; }
+    .card-view { display: block !important; }
+  }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- Toast -->
+<div id="toast" style="display:none"></div>
+
+<!-- Header -->
+<header class="bg-white shadow-sm sticky top-0 z-40">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+    <h1 class="text-lg md:text-xl font-bold text-gray-800">📦 退货订单管理</h1>
+    <button class="btn btn-primary" onclick="showCreateModal()">
+      <i class="fa fa-plus"></i> <span class="hidden md:inline">新建订单</span>
+    </button>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 py-4">
+
+  <!-- Filters -->
+  <div class="bg-white rounded-xl p-4 mb-4 shadow-sm">
+    <div class="flex flex-wrap gap-2">
+      <input id="searchInput" class="input flex-1 min-w-[160px]" placeholder="🔍 搜索订单号 / 快递单号">
+      <select id="filterStrategy" class="input w-auto min-w-[110px]" onchange="renderOrders()">
+        <option value="">全部策略</option>
+        <option value="销毁">销毁</option>
+        <option value="上门取件">上门取件</option>
+        <option value="自行寄回">自行寄回</option>
+        <option value="暂存仓库">暂存仓库</option>
+      </select>
+      <select id="filterStatus" class="input w-auto min-w-[110px]" onchange="renderOrders()">
+        <option value="">全部状态</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div id="statsBar" class="flex flex-wrap gap-3 mb-4 text-sm text-gray-500"></div>
+
+  <!-- Loading -->
+  <div id="loading" class="text-center py-12 text-gray-400">
+    <i class="fa fa-spinner fa-spin fa-2x"></i>
+  </div>
+
+  <!-- Table (Desktop) -->
+  <div class="bg-white rounded-xl shadow-sm overflow-hidden table-col">
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="bg-gray-50 text-left text-sm text-gray-500 border-b">
+            <th class="px-4 py-3 font-medium">订单编号</th>
+            <th class="px-4 py-3 font-medium">购买账号</th>
+            <th class="px-4 py-3 font-medium">国内快递单号</th>
+            <th class="px-4 py-3 font-medium">处理策略</th>
+            <th class="px-4 py-3 font-medium">当前状态</th>
+            <th class="px-4 py-3 font-medium">更新时间</th>
+            <th class="px-4 py-3 font-medium">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Cards (Mobile) -->
+  <div id="cardsView" class="card-view space-y-3" style="display:none;"></div>
+
+  <!-- Empty -->
+  <div id="emptyState" class="text-center py-16 text-gray-400" style="display:none">
+    <div class="text-5xl mb-3">📭</div>
+    <p>暂无订单数据</p>
+    <button class="btn btn-primary mt-3" onclick="showCreateModal()">+ 新建第一笔订单</button>
+  </div>
+
+</main>
+
+<!-- Create/Edit Modal -->
+<div id="createModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideCreateModal()">
+  <div class="modal">
+    <h2 class="text-lg font-bold text-gray-800 mb-4" id="createModalTitle">新建订单</h2>
+    <div class="space-y-3">
+      <div>
+        <label class="text-sm text-gray-600 mb-1 block">订单编号 <span class="text-red-400">*</span></label>
+        <input id="createOrderNo" class="input" placeholder="输入订单编号">
+      </div>
+      <div>
+        <label class="text-sm text-gray-600 mb-1 block">购买账号</label>
+        <input id="createAccount" class="input" placeholder="输入购买账号（选填）">
+      </div>
+      <div>
+        <label class="text-sm text-gray-600 mb-1 block">国内快递单号</label>
+        <input id="createTrackingNo" class="input" placeholder="输入国内快递单号（选填）">
+      </div>
+      <div>
+        <label class="text-sm text-gray-600 mb-1 block">处理策略 <span class="text-red-400">*</span></label>
+        <select id="createStrategy" class="input" onchange="onStrategyChange()">
+          <option value="">请选择策略</option>
+          <option value="销毁">销毁</option>
+          <option value="上门取件">上门取件</option>
+          <option value="自行寄回">自行寄回</option>
+          <option value="暂存仓库">暂存仓库</option>
+        </select>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button class="btn bg-gray-100 text-gray-600" onclick="hideCreateModal()">取消</button>
+      <button class="btn btn-primary" onclick="createOrder()">确认创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- Status Update Modal -->
+<div id="statusModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideStatusModal()">
+  <div class="modal">
+    <h2 class="text-lg font-bold text-gray-800 mb-1">更新状态</h2>
+    <p class="text-sm text-gray-500 mb-4" id="statusModalOrderInfo"></p>
+    <div>
+      <label class="text-sm text-gray-600 mb-1 block">选择新状态</label>
+      <select id="newStatus" class="input"></select>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button class="btn bg-gray-100 text-gray-600" onclick="hideStatusModal()">取消</button>
+      <button class="btn btn-primary" onclick="updateStatus()">确认更新</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirm Modal -->
+<div id="deleteModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideDeleteModal()">
+  <div class="modal">
+    <h2 class="text-lg font-bold text-gray-800 mb-2">确认删除</h2>
+    <p class="text-sm text-gray-500" id="deleteModalInfo"></p>
+    <div class="flex justify-end gap-2 mt-5">
+      <button class="btn bg-gray-100 text-gray-600" onclick="hideDeleteModal()">取消</button>
+      <button class="btn btn-danger" onclick="confirmDelete()">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========== Supabase 初始化 ==========
+const SUPABASE_URL = 'https://jlzsonjjfgojmwgghxbl.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpsenNvbmpqZmdvam13Z2doeGJsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5MTY2ODksImV4cCI6MjA5MjQ5MjY4OX0.ZjSV3guUc21Dq5KWBydFyy-Ps7sBn2FlC3Wr5srgn9U';
+
+function getSupabase() {
+  if (typeof window.supabase !== 'undefined' && window.supabase.createClient) {
+    return window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  }
+  return null;
+}
+
+// 带错误提示的 supabase 调用
+function requireSupabase() {
+  const s = getSupabase();
+  if (!s) { toast('数据库未就绪，请刷新页面'); throw new Error('Supabase not loaded'); }
+  return s;
+}
+
+// ========== 状态流转配置 ==========
+const STATUS_FLOWS = {
+  '销毁': ['待处理', '已选择销毁'],
+  '上门取件': ['待处理', '等待约上门取件', '已取货（但未支付运费）', '已发走', '已退款'],
+  '自行寄回': ['待处理', '已约退货并提供地址', '已取件', '已回填单号', '已退款'],
+  '暂存仓库': ['待处理', '已有新订单并预报', '已发走']
+};
+
+const ALL_STATUSES = [...new Set(Object.values(STATUS_FLOWS).flat())];
+
+// 状态颜色映射
+function getStatusBadgeClass(status) {
+  if (status === '已退款' || status === '已完成') return 'badge-status-done';
+  if (status === '待处理' || status === '已选择销毁') return 'badge-status-default';
+  if (status === '已取货（但未支付运费）') return 'badge-status-warn';
+  return 'badge-status-progress';
+}
+
+function getStrategyBadgeClass(strategy) {
+  const map = {
+    '销毁': 'badge-strategy-destroy',
+    '上门取件': 'badge-strategy-pickup',
+    '自行寄回': 'badge-strategy-self',
+    '暂存仓库': 'badge-strategy-warehouse'
+  };
+  return map[strategy] || '';
+}
+
+// ========== 全局状态 ==========
+let allOrders = [];
+let currentPageSize = 50;
+let editingOrderId = null;
+let deletingOrderId = null;
+
+// ========== 工具函数 ==========
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.cssText = 'display:block;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1e293b;color:#fff;padding:14px 28px;border-radius:10px;font-size:15px;z-index:9999;pointer-events:none;';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = 'none'; }, 2000);
+}
+
+function formatTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ========== 数据加载 ==========
+async function loadOrders() {
+  const supabase = getSupabase();
+  if (!supabase) {
+    document.getElementById('loading').innerHTML = '<div class="text-red-400"><i class="fa fa-exclamation-triangle"></i> 数据库加载失败，请刷新页面重试</div>';
+    return;
+  }
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('loading').innerHTML = '<i class="fa fa-spinner fa-spin fa-2x"></i>';
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .limit(currentPageSize);
+    document.getElementById('loading').style.display = 'none';
+
+    if (error) {
+      toast('加载失败: ' + error.message);
+      return;
+    }
+    allOrders = data || [];
+    renderOrders();
+  } catch (e) {
+    document.getElementById('loading').innerHTML = '<div class="text-red-400"><i class="fa fa-exclamation-triangle"></i> 网络错误，请检查网络后刷新</div>';
+  }
+}
+
+function getFilteredOrders() {
+  const search = document.getElementById('searchInput').value.trim().toLowerCase();
+  const strategy = document.getElementById('filterStrategy').value;
+  const status = document.getElementById('filterStatus').value;
+
+  return allOrders.filter(o => {
+    if (search) {
+      const no = (o.order_no || '').toLowerCase();
+      const trk = (o.tracking_no || '').toLowerCase();
+      const acc = (o.account || '').toLowerCase();
+      // 精确匹配：搜索词完全等于任一字段
+      if (no !== search && trk !== search && acc !== search) return false;
+    }
+    if (strategy && o.strategy !== strategy) return false;
+    if (status && o.status !== status) return false;
+    return true;
+  });
+}
+
+// ========== 渲染 ==========
+function renderOrders() {
+  const filtered = getFilteredOrders();
+  const total = allOrders.length;
+  const shown = filtered.length;
+
+  // Stats
+  const pending = allOrders.filter(o => o.status === '待处理').length;
+  const done = allOrders.filter(o => o.status === '已退款' || o.status === '已选择销毁').length;
+  const progress = total - pending - done;
+
+  document.getElementById('statsBar').innerHTML =
+    `<span>共 <b class="text-gray-800">${total}</b> 条</span>` +
+    `<span style="color:#f59e0b">● 待处理 <b>${pending}</b></span>` +
+    `<span style="color:#3b82f6">● 处理中 <b>${progress}</b></span>` +
+    `<span style="color:#10b981">● 已完成 <b>${done}</b></span>` +
+    (shown !== total ? `<span class="text-gray-400">| 筛选显示 ${shown} 条</span>` : '');
+
+  // Update status filter options
+  const statusSelect = document.getElementById('filterStatus');
+  const currentVal = statusSelect.value;
+  const usedStatuses = [...new Set(allOrders.map(o => o.status))];
+  statusSelect.innerHTML = '<option value="">全部状态</option>' +
+    ALL_STATUSES.filter(s => usedStatuses.includes(s)).map(s => `<option value="${s}">${s}</option>`).join('');
+  statusSelect.value = usedStatuses.includes(currentVal) ? currentVal : '';
+
+  // Empty state
+  const empty = document.getElementById('emptyState');
+  const table = document.querySelector('.table-col');
+  const cards = document.getElementById('cardsView');
+
+  if (total === 0) {
+    empty.style.display = 'block';
+    table.style.display = 'none';
+    cards.style.display = 'none';
+    return;
+  }
+
+  empty.style.display = 'none';
+  if (shown === 0) {
+    table.style.display = 'none';
+    cards.innerHTML = '<div class="text-center py-8 text-gray-400">没有匹配的订单</div>';
+    cards.style.display = 'block';
+    return;
+  }
+
+  // Desktop table
+  table.style.display = 'block';
+  document.getElementById('tableBody').innerHTML = filtered.map(o => `
+    <tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+      <td class="px-4 py-3 font-medium text-gray-800 text-sm">${escHtml(o.order_no)}</td>
+      <td class="px-4 py-3 text-sm text-gray-600">${escHtml(o.account || '—')}</td>
+      <td class="px-4 py-3 text-sm text-gray-600">${escHtml(o.tracking_no || '—')}</td>
+      <td class="px-4 py-3"><span class="badge ${getStrategyBadgeClass(o.strategy)}">${o.strategy}</span></td>
+      <td class="px-4 py-3"><span class="badge ${getStatusBadgeClass(o.status)}">${o.status}</span></td>
+      <td class="px-4 py-3 text-sm text-gray-400">${formatTime(o.updated_at)}</td>
+      <td class="px-4 py-3">
+        <div class="flex gap-1">
+          <button class="btn btn-sm bg-blue-50 text-blue-600" onclick="showStatusModal(${o.id})">状态</button>
+          <button class="btn btn-sm bg-red-50 text-red-500" onclick="showDeleteModal(${o.id})"><i class="fa fa-trash"></i></button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+
+  // Mobile cards
+  cards.style.display = 'none';
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// Mobile card rendering
+function renderMobileCards() {
+  const filtered = getFilteredOrders();
+  if (filtered.length === 0) return;
+  const cards = document.getElementById('cardsView');
+  cards.innerHTML = filtered.map(o => `
+    <div class="bg-white rounded-xl p-4 shadow-sm">
+      <div class="flex justify-between items-start mb-2">
+        <span class="font-medium text-gray-800">${escHtml(o.order_no)}</span>
+        <span class="badge ${getStrategyBadgeClass(o.strategy)}">${o.strategy}</span>
+      </div>
+      <div class="text-sm text-gray-500 space-y-1">
+        <div>账号：${escHtml(o.account || '—')}</div>
+        <div>快递：${escHtml(o.tracking_no || '—')}</div>
+        <div>状态：<span class="badge ${getStatusBadgeClass(o.status)}">${o.status}</span></div>
+        <div class="text-gray-400">${formatTime(o.updated_at)}</div>
+      </div>
+      <div class="flex gap-2 mt-3">
+        <button class="btn btn-sm bg-blue-50 text-blue-600 flex-1" onclick="showStatusModal(${o.id})">更新状态</button>
+        <button class="btn btn-sm bg-red-50 text-red-500" onclick="showDeleteModal(${o.id})"><i class="fa fa-trash"></i></button>
+      </div>
+    </div>
+  `).join('');
+  cards.style.display = 'block';
+}
+
+// Responsive detection
+function checkResponsive() {
+  if (window.innerWidth <= 768) {
+    document.querySelector('.table-col').style.display = 'none';
+    renderMobileCards();
+  } else {
+    document.getElementById('cardsView').style.display = 'none';
+    document.querySelector('.table-col').style.display = 'block';
+    renderOrders();
+  }
+}
+
+// Override renderOrders for responsive
+const origRenderOrders = renderOrders;
+renderOrders = function() {
+  if (window.innerWidth <= 768) {
+    // Update stats and filters but show cards
+    const filtered = getFilteredOrders();
+    const total = allOrders.length;
+    const pending = allOrders.filter(o => o.status === '待处理').length;
+    const done = allOrders.filter(o => o.status === '已退款' || o.status === '已选择销毁').length;
+    const progress = total - pending - done;
+    document.getElementById('statsBar').innerHTML =
+      `<span>共 <b class="text-gray-800">${total}</b> 条</span>` +
+      `<span style="color:#f59e0b">● 待处理 <b>${pending}</b></span>` +
+      `<span style="color:#3b82f6">● 处理中 <b>${progress}</b></span>` +
+      `<span style="color:#10b981">● 已完成 <b>${done}</b></span>`;
+    const statusSelect = document.getElementById('filterStatus');
+    const currentVal = statusSelect.value;
+    const usedStatuses = [...new Set(allOrders.map(o => o.status))];
+    statusSelect.innerHTML = '<option value="">全部状态</option>' +
+      ALL_STATUSES.filter(s => usedStatuses.includes(s)).map(s => `<option value="${s}">${s}</option>`).join('');
+    statusSelect.value = usedStatuses.includes(currentVal) ? currentVal : '';
+    const empty = document.getElementById('emptyState');
+    if (allOrders.length === 0) {
+      empty.style.display = 'block';
+    } else {
+      empty.style.display = 'none';
+      renderMobileCards();
+    }
+    return;
+  }
+  origRenderOrders();
+};
+
+window.addEventListener('resize', checkResponsive);
+
+// ========== 新建订单 ==========
+function showCreateModal() {
+  document.getElementById('createOrderNo').value = '';
+  document.getElementById('createAccount').value = '';
+  document.getElementById('createTrackingNo').value = '';
+  document.getElementById('createStrategy').value = '';
+  document.getElementById('createModalTitle').textContent = '新建订单';
+  document.getElementById('createModal').style.display = 'flex';
+}
+
+function hideCreateModal() {
+  document.getElementById('createModal').style.display = 'none';
+}
+
+async function createOrder() {
+  const orderNo = document.getElementById('createOrderNo').value.trim();
+  const account = document.getElementById('createAccount').value.trim();
+  const trackingNo = document.getElementById('createTrackingNo').value.trim();
+  const strategy = document.getElementById('createStrategy').value;
+
+  if (!orderNo) return toast('请输入订单编号');
+  if (!strategy) return toast('请选择处理策略');
+
+  // 检查订单编号是否已存在
+  const { data: existing } = await requireSupabase().from('orders').select('id').eq('order_no', orderNo).limit(1);
+  if (existing && existing.length > 0) return toast('该订单编号已存在');
+
+  const { error } = await requireSupabase().from('orders').insert({
+    order_no: orderNo,
+    account: account,
+    tracking_no: trackingNo,
+    strategy: strategy,
+    status: '待处理'
+  });
+
+  if (error) return toast('创建失败: ' + error.message);
+
+  // 本地新增，免刷新
+  const { data: newOrders } = await requireSupabase().from('orders').select('*').eq('order_no', orderNo).limit(1);
+  if (newOrders && newOrders.length > 0) {
+    allOrders.unshift(newOrders[0]);
+    renderOrders();
+  }
+  toast('订单已创建');
+  hideCreateModal();
+}
+
+// ========== 状态更新 ==========
+function showStatusModal(orderId) {
+  const order = allOrders.find(o => o.id === orderId);
+  if (!order) return;
+  editingOrderId = orderId;
+
+  document.getElementById('statusModalOrderInfo').textContent =
+    `订单：${order.order_no} | 当前状态：${order.status}`;
+
+  const flows = STATUS_FLOWS[order.strategy] || [];
+  const currentIdx = flows.indexOf(order.status);
+  const options = currentIdx >= 0 ? flows.slice(currentIdx + 1) : flows;
+
+  if (options.length === 0) {
+    document.getElementById('newStatus').innerHTML = '<option value="">已是最终状态，无法继续</option>';
+  } else {
+    document.getElementById('newStatus').innerHTML =
+      options.map(s => `<option value="${s}">${s}</option>`).join('');
+  }
+
+  document.getElementById('statusModal').style.display = 'flex';
+}
+
+function hideStatusModal() {
+  document.getElementById('statusModal').style.display = 'none';
+  editingOrderId = null;
+}
+
+async function updateStatus() {
+  const newStatus = document.getElementById('newStatus').value;
+  if (!newStatus) return toast('请选择新状态');
+
+  const { error } = await requireSupabase()
+    .from('orders')
+    .update({ status: newStatus, updated_at: new Date().toISOString() })
+    .eq('id', editingOrderId);
+
+  if (error) return toast('更新失败: ' + error.message);
+
+  // 本地更新
+  const idx = allOrders.findIndex(o => o.id === editingOrderId);
+  if (idx >= 0) { allOrders[idx].status = newStatus; allOrders[idx].updated_at = new Date().toISOString(); }
+  renderOrders();
+  toast('状态已更新');
+  hideStatusModal();
+}
+
+// ========== 删除 ==========
+function showDeleteModal(orderId) {
+  const order = allOrders.find(o => o.id === orderId);
+  if (!order) return;
+  deletingOrderId = orderId;
+  document.getElementById('deleteModalInfo').textContent =
+    `确定删除订单「${order.order_no}」吗？此操作不可恢复。`;
+  document.getElementById('deleteModal').style.display = 'flex';
+}
+
+function hideDeleteModal() {
+  document.getElementById('deleteModal').style.display = 'none';
+  deletingOrderId = null;
+}
+
+async function confirmDelete() {
+  const { error } = await requireSupabase().from('orders').delete().eq('id', deletingOrderId);
+  if (error) return toast('删除失败: ' + error.message);
+
+  // 本地删除
+  allOrders = allOrders.filter(o => o.id !== deletingOrderId);
+  renderOrders();
+  toast('订单已删除');
+  hideDeleteModal();
+}
+
+// ========== 搜索 ==========
+document.getElementById('searchInput').addEventListener('input', function() {
+  if (window.innerWidth <= 768) {
+    const filtered = getFilteredOrders();
+    const total = allOrders.length;
+    const pending = allOrders.filter(o => o.status === '待处理').length;
+    const done = allOrders.filter(o => o.status === '已退款' || o.status === '已选择销毁').length;
+    const progress = total - pending - done;
+    document.getElementById('statsBar').innerHTML =
+      `<span>共 <b class="text-gray-800">${total}</b> 条</span>` +
+      `<span style="color:#f59e0b">● 待处理 <b>${pending}</b></span>` +
+      `<span style="color:#3b82f6">● 处理中 <b>${progress}</b></span>` +
+      `<span style="color:#10b981">● 已完成 <b>${done}</b></span>`;
+    if (filtered.length === 0) {
+      document.getElementById('cardsView').innerHTML = '<div class="text-center py-8 text-gray-400">没有匹配的订单</div>';
+    } else {
+      renderMobileCards();
+    }
+  } else {
+    renderOrders();
+  }
+});
+
+// ========== 启动 ==========
+// 10秒超时保护
+setTimeout(() => {
+  const loading = document.getElementById('loading');
+  if (loading.style.display !== 'none') {
+    loading.innerHTML = '<div class="text-amber-500"><i class="fa fa-exclamation-triangle"></i> 加载超时，请检查 Supabase 连接后<a href="javascript:location.reload()" class="underline text-blue-500">刷新</a></div>';
+  }
+}, 10000);
+loadOrders();
+</script>
+</body>
+</html>

@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="version" content="20260601-v5">
+<meta name="version" content="20260601-v6">
 <title>退货订单管理</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -179,7 +179,7 @@ if ('serviceWorker' in navigator) {
     <div class="space-y-3">
       <div>
         <label class="text-sm text-gray-600 mb-1 block">订单编号 <span class="text-red-400">*</span></label>
-        <input id="createOrderNo" class="input" placeholder="输入订单编号" oninput="debounceAutoFill()" onfocus="buyerCache=null;loadBuyerCache(true).then(()=>requestAnimationFrame(renderOrders))">
+        <input id="createOrderNo" class="input" placeholder="输入订单编号" oninput="debounceAutoFill()" onfocus="loadBuyerCache(true).then(()=>smartRender())">
       </div>
       <div>
         <label class="text-sm text-gray-600 mb-1 block">购买账号</label>
@@ -307,7 +307,7 @@ if ('serviceWorker' in navigator) {
 <script>
 // ========== Supabase ==========
 // 版本检测：强制清除旧缓存
-const APP_VERSION = '20260601-v5';
+const APP_VERSION = '20260601-v6';
 (function checkVersion() {
   const stored = localStorage.getItem('app_version');
   if (stored && stored !== APP_VERSION) {
@@ -488,6 +488,8 @@ function renderOrders() {
       </td>
     </tr>`;
   }).join('');
+  // 更新缓存指纹，避免自动刷新时重复渲染
+  if (buyerCache) _prevCacheFingerprint = cacheFingerprint(buyerCache);
 }
 
 function renderMobileCards(filtered, cache) {
@@ -641,6 +643,7 @@ async function syncImages() {
             status.className = 'text-xs text-green-600 mb-3';
             // 刷新缓存
             buyerCache = null;
+            _prevCacheFingerprint = '';
             await loadBuyerCache(true);
             requestAnimationFrame(renderOrders);
             appendLog('');
@@ -884,6 +887,7 @@ async function syncExcel(filepath) {
             status.textContent = '导入完成！';
             status.className = 'text-xs text-green-600 mb-3';
             buyerCache = null;
+            _prevCacheFingerprint = '';
             await loadBuyerCache(true);
             requestAnimationFrame(renderOrders);
             addLog('✅ 买家缓存已更新');
@@ -915,9 +919,31 @@ function hideCreateModal() { document.getElementById('createModal').style.displa
 // 自动匹配购买人
 let buyerCache = null;
 let buyerCacheLoading = false;
+let _prevCacheFingerprint = '';
 const BUYER_CACHE_KEY = 'return_app_buyer_cache';
 const BUYER_CACHE_TIME_KEY = 'return_app_buyer_cache_time';
 const CACHE_TTL = 20 * 1000; // 20 秒，localStorage 有效期
+
+function cacheFingerprint(cache) {
+  const keys = Object.keys(cache);
+  let tracking = 0, account = 0, image = 0;
+  for (let i = 0; i < keys.length; i++) {
+    const v = cache[keys[i]];
+    if (v.tracking_no) tracking++;
+    if (v.account) account++;
+    if (v.image_url) image++;
+  }
+  return `${keys.length}:${tracking}:${account}:${image}`;
+}
+
+function smartRender() {
+  if (!buyerCache) { requestAnimationFrame(renderOrders); return; }
+  const fp = cacheFingerprint(buyerCache);
+  if (fp !== _prevCacheFingerprint) {
+    _prevCacheFingerprint = fp;
+    requestAnimationFrame(renderOrders);
+  }
+}
 
 async function loadBuyerCache(forceRefresh = false) {
   // 不强制刷新时，直接返回内存缓存
@@ -1091,24 +1117,22 @@ async function autoFillBuyer() {
   }
 }
 // 预加载缓存（延迟确保 Supabase SDK 就绪），加载完立即刷新列表
-setTimeout(() => { loadBuyerCache().then(() => { requestAnimationFrame(renderOrders); }).catch(e => console.error('[自动填充] 预加载失败:', e)); }, 500);
-// 每 10 秒自动刷新缓存（优先 localStorage，过期则查 Supabase）
+setTimeout(() => { loadBuyerCache().then(() => { smartRender(); }).catch(e => console.error('[自动填充] 预加载失败:', e)); }, 500);
+// 每 10 秒自动刷新缓存，仅数据变化时才重新渲染（避免图片闪烁）
 let _autoRefreshTimer = null;
 function scheduleAutoRefresh() {
   clearInterval(_autoRefreshTimer);
   _autoRefreshTimer = setInterval(() => {
-    if (document.hidden) return; // 页面不可见时跳过，省电
-    buyerCache = null;
-    loadBuyerCache(true).then(() => { requestAnimationFrame(renderOrders); }).catch(() => {});
+    if (document.hidden) return;
+    loadBuyerCache(true).then(() => { smartRender(); }).catch(() => {});
   }, 10000);
 }
 scheduleAutoRefresh();
 
-// 页面恢复可见时立即强制刷新
+// 页面恢复可见时立即检查更新
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    buyerCache = null;
-    loadBuyerCache(true).then(() => { requestAnimationFrame(renderOrders); }).catch(() => {});
+    loadBuyerCache(true).then(() => { smartRender(); }).catch(() => {});
   }
 });
 

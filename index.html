@@ -208,6 +208,17 @@ if ('serviceWorker' in navigator) {
   </div>
 </div>
 
+<!-- Detail Modal -->
+<div id="detailModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideDetailModal()">
+  <div class="modal" style="max-width:520px">
+    <h2 class="text-lg font-bold text-gray-800 mb-4">订单详情</h2>
+    <div id="detailContent" class="space-y-3"></div>
+    <div class="flex justify-end mt-5">
+      <button class="btn bg-gray-100 text-gray-600" onclick="hideDetailModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
 <!-- Delete Modal -->
 <div id="deleteModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideDeleteModal()">
   <div class="modal">
@@ -366,6 +377,7 @@ function renderOrders() {
       <td class="px-4 py-3">
         <div class="flex gap-1">
           <button class="btn btn-sm bg-blue-50 text-blue-600" onclick="showStatusModal(${o.id})">状态</button>
+          <button class="btn btn-sm bg-indigo-50 text-indigo-600" onclick="showDetailModal(${o.id})">详情</button>
           <button class="btn btn-sm bg-red-50 text-red-500" onclick="showDeleteModal(${o.id})"><i class="fa fa-trash"></i></button>
         </div>
       </td>
@@ -388,7 +400,8 @@ function renderMobileCards(filtered) {
         <span style="margin-left:auto;font-size:12px;color:#94a3b8;">${formatTime(o.updated_at)}</span>
       </div>
       <div class="card-actions">
-        <button class="btn btn-sm flex-1" style="background:#eff6ff;color:#2563eb;" onclick="showStatusModal(${o.id})">更新状态</button>
+        <button class="btn btn-sm flex-1" style="background:#eff6ff;color:#2563eb;" onclick="showStatusModal(${o.id})">状态</button>
+        <button class="btn btn-sm" style="background:#eef2ff;color:#4f46e5;" onclick="showDetailModal(${o.id})">详情</button>
         <button class="btn btn-sm" style="background:#fef2f2;color:#dc2626;" onclick="showDeleteModal(${o.id})"><i class="fa fa-trash"></i></button>
       </div>
     </div>`).join('');
@@ -465,7 +478,7 @@ async function loadBuyerCache() {
     while (true) {
       const { data, error } = await supabase
         .from('buyer_mapping')
-        .select('order_no,account,tracking_no')
+        .select('order_no,account,tracking_no,order_date,product_name,cost')
         .range(from, from + pageSize - 1)
         .order('id', { ascending: true });
       if (error) {
@@ -484,12 +497,16 @@ async function loadBuyerCache() {
       if (key) {
         buyerCache[key] = {
           account: (d.account || '').trim(),
-          tracking_no: (d.tracking_no || '').trim()
+          tracking_no: (d.tracking_no || '').trim(),
+          order_date: (d.order_date || '').trim(),
+          product_name: (d.product_name || '').trim(),
+          cost: (d.cost || '').trim()
         };
       }
     });
     const withTracking = allData.filter(d => d.tracking_no).length;
-    console.log(`[自动填充] 买家缓存已加载，共 ${Object.keys(buyerCache).length} 条（含快递单号: ${withTracking} 条）`);
+    const withDetail = allData.filter(d => d.product_name || d.cost).length;
+    console.log(`[自动填充] 买家缓存已加载，共 ${Object.keys(buyerCache).length} 条（含快递: ${withTracking}, 含详情: ${withDetail}）`);
     return buyerCache;
   } catch (e) {
     console.error('[自动填充] 加载买家缓存异常:', e);
@@ -607,6 +624,82 @@ async function updateStatus() {
   hideStatusModal();
   requestAnimationFrame(() => { renderOrders(); toast('状态已更新'); });
 }
+
+// ========== 订单详情 ==========
+function showDetailModal(orderId) {
+  const order = allOrders.find(o => o.id === orderId);
+  if (!order) return;
+
+  const cache = buyerCache || {};
+  const info = cache[order.order_no];
+
+  const isEmpty = v => !v || v === '' || v === 'None';
+
+  // 格式化成本显示
+  function fmtCost(v) {
+    if (isEmpty(v)) return null;
+    const n = parseFloat(v);
+    if (!isNaN(n)) return n.toFixed(2);
+    return v;
+  }
+
+  const rows = [
+    { label: '订单编号', value: order.order_no || '—' },
+    { label: '购买账号', value: order.account || (info && info.account) || '—' },
+    { label: '处理策略', value: order.strategy || '—', badge: getStrategyBadgeClass(order.strategy) },
+    { label: '当前状态', value: order.status || '—', badge: getStatusBadgeClass(order.status) },
+    { label: '国内快递', value: order.tracking_no || (info && info.tracking_no) || '—', isTracking: true },
+  ];
+
+  // Excel 匹配的详细信息
+  if (info) {
+    const costVal = fmtCost(info.cost);
+    rows.push(
+      { label: '订单日期', value: info.order_date || '—', isExtra: true },
+      { label: '货物名称', value: info.product_name || '—', isExtra: true },
+      { label: '成本', value: costVal ? `¥${costVal}` : '—', isExtra: true, highlight: !!costVal }
+    );
+  } else {
+    rows.push(
+      { label: '订单日期', value: '暂无匹配数据', isExtra: true, muted: true },
+      { label: '货物名称', value: '—', isExtra: true, muted: true },
+      { label: '成本', value: '—', isExtra: true, muted: true }
+    );
+  }
+
+  // 商品图片占位
+  rows.push({ label: '商品图片', value: '', isImage: true });
+
+  let html = '';
+  for (const r of rows) {
+    if (r.isImage) {
+      html += `<div>
+        <span class="text-xs text-gray-400 block mb-1">商品图片</span>
+        <div style="background:#f8fafc;border:2px dashed #e2e8f0;border-radius:8px;height:100px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;">
+          <i class="fa fa-image" style="margin-right:6px;"></i>预留位置，稍后实现
+        </div>
+      </div>`;
+    } else {
+      let vDisplay;
+      if (r.isTracking && r.value !== '—') {
+        vDisplay = `<a href="https://www.baidu.com/s?wd=${encodeURIComponent(r.value)}" target="_blank" class="tracking-link">${escHtml(r.value)}</a>`;
+      } else {
+        vDisplay = r.badge
+          ? `<span class="badge ${r.badge}">${escHtml(r.value)}</span>`
+          : `<span class="${r.muted ? 'text-gray-300' : r.isExtra ? 'text-gray-700' : 'text-gray-600'}">${escHtml(r.value)}${r.highlight ? '' : ''}</span>`;
+      }
+      const labelColor = r.isExtra ? 'text-indigo-500' : 'text-gray-400';
+      html += `<div class="flex items-center gap-3">
+        <span class="text-xs ${labelColor} min-w-[56px]">${r.label}</span>
+        <span class="text-sm">${vDisplay}</span>
+      </div>`;
+    }
+  }
+
+  document.getElementById('detailContent').innerHTML = html;
+  document.getElementById('detailModal').style.display = 'flex';
+}
+function hideDetailModal() { document.getElementById('detailModal').style.display = 'none'; }
 
 // ========== 删除 ==========
 function showDeleteModal(orderId) {

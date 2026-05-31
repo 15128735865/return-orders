@@ -478,9 +478,8 @@ async function updateStatus() {
   if (error) return toast('更新失败: ' + error.message);
   const idx = allOrders.findIndex(o => o.id === editingOrderId);
   if (idx >= 0) { allOrders[idx].status = newStatus; allOrders[idx].updated_at = new Date().toISOString(); }
-  renderOrders();
-  toast('状态已更新');
   hideStatusModal();
+  requestAnimationFrame(() => { renderOrders(); toast('状态已更新'); });
 }
 
 // ========== 删除 ==========
@@ -497,9 +496,19 @@ async function confirmDelete() {
   const { error } = await requireSupabase().from('orders').delete().eq('id', deletingOrderId);
   if (error) return toast('删除失败: ' + error.message);
   allOrders = allOrders.filter(o => o.id !== deletingOrderId);
-  renderOrders();
-  toast('订单已删除');
   hideDeleteModal();
+  // 移动端需要强制 DOM 刷新，确保卡片立即消失
+  const isMobile = window.innerWidth <= 768;
+  if (isMobile) {
+    document.getElementById('cardsView').style.display = 'none';
+    document.getElementById('cardsView').innerHTML = '';
+  }
+  // 用 RAF 确保浏览器完成重排后再渲染
+  requestAnimationFrame(() => {
+    renderOrders();
+    if (isMobile) document.getElementById('cardsView').style.display = 'block';
+    toast('订单已删除');
+  });
 }
 
 // ========== 搜索监听 ==========

@@ -42,7 +42,9 @@ if ('serviceWorker' in navigator) {
   .input { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; outline: none; box-sizing: border-box; }
   .input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
   select.input { appearance: none; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M6 8L1 3h10z' fill='%239ca3af'/%3E%3C/svg%3E") no-repeat right 10px center; padding-right: 32px; }
-  .toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: #1e293b; color: #fff; padding: 14px 28px; border-radius: 10px; font-size: 15px; z-index: 100; animation: fadeIn 0.25s ease; pointer-events: none; }
+  .tracking-link { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; }
+.tracking-link:hover { color: #1d4ed8; }
+.toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: #1e293b; color: #fff; padding: 14px 28px; border-radius: 10px; font-size: 15px; z-index: 100; animation: fadeIn 0.25s ease; pointer-events: none; }
   @keyframes fadeIn { from { opacity: 0; transform: translate(-50%,-50%) scale(0.9); } to { opacity: 1; transform: translate(-50%,-50%) scale(1); } }
   .skeleton-bar { height: 16px; background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; margin-bottom: 12px; }
   .skeleton-bar.w-3\/4 { width: 75%; }
@@ -357,7 +359,7 @@ function renderOrders() {
     <tr class="border-b border-gray-50 hover:bg-gray-50/50">
       <td class="px-4 py-3 font-medium text-gray-800 text-sm">${escHtml(o.order_no)}</td>
       <td class="px-4 py-3 text-sm text-gray-600">${escHtml(o.account || '—')}</td>
-      <td class="px-4 py-3 text-sm text-gray-600">${escHtml(o.tracking_no || '—')}</td>
+      <td class="px-4 py-3 text-sm">${o.tracking_no ? `<a href="https://www.baidu.com/s?wd=${encodeURIComponent(o.tracking_no)}" target="_blank" class="tracking-link">${escHtml(o.tracking_no)}</a>` : `<span class="text-gray-400">—</span>`}</td>
       <td class="px-4 py-3"><span class="badge ${getStrategyBadgeClass(o.strategy)}">${o.strategy}</span></td>
       <td class="px-4 py-3"><span class="badge ${getStatusBadgeClass(o.status)}">${o.status}</span></td>
       <td class="px-4 py-3 text-sm text-gray-400">${formatTime(o.updated_at)}</td>
@@ -379,7 +381,7 @@ function renderMobileCards(filtered) {
         <span class="badge ${getStrategyBadgeClass(o.strategy)}" style="margin-left:auto;">${o.strategy}</span>
       </div>
       ${o.account ? `<div class="card-row"><span class="card-label">账号</span><span class="card-value">${escHtml(o.account)}</span></div>` : ''}
-      ${o.tracking_no ? `<div class="card-row"><span class="card-label">快递</span><span class="card-value" style="font-family:monospace;">${escHtml(o.tracking_no)}</span></div>` : ''}
+      ${o.tracking_no ? `<div class="card-row"><span class="card-label">快递</span><a href="https://www.baidu.com/s?wd=${encodeURIComponent(o.tracking_no)}" target="_blank" class="tracking-link" style="font-family:monospace;">${escHtml(o.tracking_no)}</a></div>` : ''}
       <div class="card-row">
         <span class="card-label">状态</span>
         <span class="badge ${getStatusBadgeClass(o.status)}">${o.status}</span>

@@ -478,7 +478,7 @@ async function loadBuyerCache() {
     while (true) {
       const { data, error } = await supabase
         .from('buyer_mapping')
-        .select('order_no,account,tracking_no,order_date,product_name,cost')
+        .select('order_no,account,tracking_no,order_date,product_name,cost,sku,image_url')
         .range(from, from + pageSize - 1)
         .order('id', { ascending: true });
       if (error) {
@@ -500,13 +500,16 @@ async function loadBuyerCache() {
           tracking_no: (d.tracking_no || '').trim(),
           order_date: (d.order_date || '').trim(),
           product_name: (d.product_name || '').trim(),
-          cost: (d.cost || '').trim()
+          cost: (d.cost || '').trim(),
+          sku: (d.sku || '').trim(),
+          image_url: (d.image_url || '').trim()
         };
       }
     });
     const withTracking = allData.filter(d => d.tracking_no).length;
     const withDetail = allData.filter(d => d.product_name || d.cost).length;
-    console.log(`[自动填充] 买家缓存已加载，共 ${Object.keys(buyerCache).length} 条（含快递: ${withTracking}, 含详情: ${withDetail}）`);
+    const withImage = allData.filter(d => d.image_url).length;
+    console.log(`[自动填充] 买家缓存已加载，共 ${Object.keys(buyerCache).length} 条（含快递: ${withTracking}, 含详情: ${withDetail}, 含图片: ${withImage}）`);
     return buyerCache;
   } catch (e) {
     console.error('[自动填充] 加载买家缓存异常:', e);
@@ -667,18 +670,25 @@ function showDetailModal(orderId) {
     );
   }
 
-  // 商品图片占位
-  rows.push({ label: '商品图片', value: '', isImage: true });
+  // 商品图片
+  const imageUrl = (info && info.image_url) || '';
+  rows.push({ label: '商品图片', value: imageUrl, isImage: true });
 
   let html = '';
   for (const r of rows) {
     if (r.isImage) {
       html += `<div>
-        <span class="text-xs text-gray-400 block mb-1">商品图片</span>
-        <div style="background:#f8fafc;border:2px dashed #e2e8f0;border-radius:8px;height:100px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;">
-          <i class="fa fa-image" style="margin-right:6px;"></i>预留位置，稍后实现
-        </div>
-      </div>`;
+        <span class="text-xs text-gray-400 block mb-1">商品图片</span>`;
+      if (r.value) {
+        html += `<div style="background:#f8fafc;border-radius:8px;overflow:hidden;display:flex;justify-content:center;">
+          <img src="${escHtml(r.value)}" alt="商品图片" style="max-width:100%;max-height:280px;object-fit:contain;" onerror="this.parentElement.innerHTML='<div style=\\'padding:40px;color:#94a3b8;text-align:center;\\'><i class=\\'fa fa-image\\' style=\\'font-size:24px;margin-bottom:6px;display:block;\\'></i>图片加载失败</div>'">
+        </div>`;
+      } else {
+        html += `<div style="background:#f8fafc;border:2px dashed #e2e8f0;border-radius:8px;height:100px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;">
+          <i class="fa fa-image" style="margin-right:6px;"></i>暂无商品图片
+        </div>`;
+      }
+      html += `</div>`;
     } else {
       let vDisplay;
       if (r.isTracking && r.value !== '—') {

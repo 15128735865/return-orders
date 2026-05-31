@@ -67,6 +67,22 @@ if ('serviceWorker' in navigator) {
 </head>
 <body class="bg-gray-50 min-h-screen">
 
+<!-- 立即显示的启动画面（Tailwind 加载前可见） -->
+<div id="splash" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
+  <div style="text-align:center;">
+    <div style="font-size:56px;margin-bottom:16px;">📦</div>
+    <div style="font-size:18px;font-weight:700;color:#1e293b;margin-bottom:6px;">退货订单管理</div>
+    <div style="font-size:13px;color:#94a3b8;">数据加载中...</div>
+    <div style="margin-top:16px;width:120px;height:3px;background:#e2e8f0;border-radius:2px;margin-left:auto;margin-right:auto;overflow:hidden;">
+      <div style="width:40%;height:100%;background:#3b82f6;border-radius:2px;animation:splashBar 1.2s ease infinite;"></div>
+    </div>
+  </div>
+</div>
+<style>@keyframes splashBar{0%{margin-left:0}50%{margin-left:60%}100%{margin-left:0}}</style>
+
+<!-- 主界面 -->
+<div id="app" style="display:none">
+
 <div id="toast" style="display:none"></div>
 
 <!-- Header -->
@@ -200,6 +216,9 @@ if ('serviceWorker' in navigator) {
       <button class="btn btn-danger" onclick="confirmDelete()">确认删除</button>
     </div>
   </div>
+</div>
+
+<!-- app wrapper end -->
 </div>
 
 <script>
@@ -374,18 +393,14 @@ function renderMobileCards(filtered) {
 }
 
 // ========== 数据加载 ==========
-async function loadOrders(silent) {
+async function loadOrders() {
   const supabase = getSupabase();
   if (!supabase) {
-    if (!silent) document.getElementById('loading').innerHTML = '<div class="text-red-400">数据库加载失败，请刷新重试</div>';
+    document.getElementById('loading').innerHTML = '<div class="text-red-400">数据库加载失败，请刷新重试</div>';
     return;
   }
-  if (!silent) {
-    document.getElementById('loading').style.display = 'block';
-    document.getElementById('loading').innerHTML = '<div class="skeleton-bar"></div><div class="skeleton-bar w-3/4"></div><div class="skeleton-bar w-1/2"></div>';
-  } else {
-    document.getElementById('refreshBtn').innerHTML = '<i class="fa fa-refresh fa-spin"></i>';
-  }
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('loading').innerHTML = '<div class="skeleton-bar"></div><div class="skeleton-bar w-3/4"></div><div class="skeleton-bar w-1/2"></div>';
   try {
     const { data, error } = await supabase
       .from('orders')
@@ -394,25 +409,19 @@ async function loadOrders(silent) {
       .limit(100);
 
     document.getElementById('loading').style.display = 'none';
-    if (error) { toast('加载失败'); return; }
+    if (error) { document.getElementById('loading').innerHTML = '<div class="text-red-400">加载失败</div>'; return; }
 
     allOrders = data || [];
     const now = new Date();
     const ts = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+    document.getElementById('lastRefresh').textContent = ts;
     renderOrders();
-    if (silent) {
-      document.getElementById('refreshBtn').innerHTML = '<i class="fa fa-refresh"></i> <span class="hidden md:inline text-xs" id="lastRefresh">'+ts+'</span>';
-      toast('数据已刷新');
-    } else {
-      document.getElementById('lastRefresh').textContent = ts;
-    }
   } catch (e) {
-    if (!silent) document.getElementById('loading').innerHTML = '<div class="text-red-400">网络错误，请检查网络后刷新</div>';
-    if (silent) document.getElementById('refreshBtn').innerHTML = '<i class="fa fa-refresh"></i> <span class="hidden md:inline text-xs" id="lastRefresh">失败</span>';
+    document.getElementById('loading').innerHTML = '<div class="text-red-400">网络错误，请检查网络后刷新</div>';
   }
 }
 
-function refreshOrders() { loadOrders(true); }
+function refreshOrders() { location.reload(); }
 
 // ========== 新建订单 ==========
 function showCreateModal() {
@@ -502,7 +511,10 @@ setTimeout(() => {
   const loading = document.getElementById('loading');
   if (loading.style.display !== 'none') loading.innerHTML = '<div class="text-amber-500">加载超时，请<a href="javascript:location.reload()" class="underline text-blue-500">刷新</a></div>';
 }, 10000);
-loadOrders();
+loadOrders().then(() => {
+  document.getElementById('splash').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+});
 </script>
 </body>
 </html>

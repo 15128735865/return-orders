@@ -436,12 +436,10 @@ function hideCreateModal() { document.getElementById('createModal').style.displa
 // 自动匹配购买人
 let buyerCache = null;
 let buyerCacheLoading = false;
-let buyerCacheError = null;
 
 async function loadBuyerCache() {
   if (buyerCache) return buyerCache;
   if (buyerCacheLoading) {
-    // 等待正在进行的加载
     let retries = 0;
     while (buyerCacheLoading && retries < 50) {
       await new Promise(r => setTimeout(r, 200));
@@ -458,19 +456,18 @@ async function loadBuyerCache() {
       return {};
     }
 
-    // 分页获取全部记录（Supabase 默认每页最多 1000 条）
+    // 分页获取全部记录
     let allData = [];
     let from = 0;
     const pageSize = 1000;
     while (true) {
       const { data, error } = await supabase
         .from('buyer_mapping')
-        .select('order_no,account')
+        .select('order_no,account,tracking_no')
         .range(from, from + pageSize - 1)
         .order('id', { ascending: true });
       if (error) {
         console.error('[自动填充] 加载买家缓存失败:', error);
-        buyerCacheError = error;
         return {};
       }
       if (!data || data.length === 0) break;
@@ -482,13 +479,18 @@ async function loadBuyerCache() {
     buyerCache = {};
     allData.forEach(d => {
       const key = (d.order_no || '').trim();
-      if (key) buyerCache[key] = (d.account || '').trim();
+      if (key) {
+        buyerCache[key] = {
+          account: (d.account || '').trim(),
+          tracking_no: (d.tracking_no || '').trim()
+        };
+      }
     });
-    console.log(`[自动填充] 买家缓存已加载，共 ${Object.keys(buyerCache).length} 条记录`);
+    const withTracking = allData.filter(d => d.tracking_no).length;
+    console.log(`[自动填充] 买家缓存已加载，共 ${Object.keys(buyerCache).length} 条（含快递单号: ${withTracking} 条）`);
     return buyerCache;
   } catch (e) {
     console.error('[自动填充] 加载买家缓存异常:', e);
-    buyerCacheError = e;
     return {};
   } finally {
     buyerCacheLoading = false;
@@ -504,27 +506,49 @@ function debounceAutoFill() {
 async function autoFillBuyer() {
   const orderNo = document.getElementById('createOrderNo').value.trim();
   if (!orderNo || orderNo.length < 5) return;
-  // 如果购买账号已经手动填写，不覆盖
+
   const accountInput = document.getElementById('createAccount');
-  if (accountInput.value.trim()) return;
+  const trackingInput = document.getElementById('createTrackingNo');
 
   const cache = await loadBuyerCache();
-  const account = cache[orderNo];
-  if (account) {
-    accountInput.value = account;
-    accountInput.style.background = '#f0fdf4';
-    setTimeout(() => accountInput.style.background = '', 1500);
-    console.log(`[自动填充] ✅ 匹配成功: ${orderNo} → ${account}`);
+  const info = cache[orderNo];
+
+  if (info) {
+    // 自动填充购买账号（不覆盖手动填写）
+    if (info.account && !accountInput.value.trim()) {
+      accountInput.value = info.account;
+      accountInput.style.background = '#f0fdf4';
+      setTimeout(() => accountInput.style.background = '', 1500);
+      console.log(`[自动填充] ✅ 账号: ${orderNo} → ${info.account}`);
+    }
+    // 自动填充快递单号（不覆盖手动填写）
+    if (info.tracking_no && !trackingInput.value.trim()) {
+      trackingInput.value = info.tracking_no;
+      trackingInput.style.background = '#f0fdf4';
+      setTimeout(() => trackingInput.style.background = '', 1500);
+      console.log(`[自动填充] ✅ 快递单号: ${orderNo} → ${info.tracking_no}`);
+    }
+    if (!info.account && !info.tracking_no) {
+      console.log(`[自动填充] ⚠️ 订单号存在但无数据: "${orderNo}"`);
+    }
+    if (!info.account && !info.tracking_no) return;
   } else {
     console.log(`[自动填充] ❌ 未匹配: "${orderNo}" (缓存共 ${Object.keys(cache).length} 条)`);
-    // 尝试模糊匹配：去除前后空格、统一破折号
+    // 归一化重试
     const normalized = orderNo.replace(/[-－]/g, '-').replace(/\s+/g, '');
     for (const [key, val] of Object.entries(cache)) {
       if (key.replace(/[-－]/g, '-').replace(/\s+/g, '') === normalized) {
-        accountInput.value = val;
-        accountInput.style.background = '#f0fdf4';
-        setTimeout(() => accountInput.style.background = '', 1500);
-        console.log(`[自动填充] ✅ 归一化后匹配成功: "${orderNo}" → "${key}" → ${val}`);
+        if (val.account && !accountInput.value.trim()) {
+          accountInput.value = val.account;
+          accountInput.style.background = '#f0fdf4';
+          setTimeout(() => accountInput.style.background = '', 1500);
+        }
+        if (val.tracking_no && !trackingInput.value.trim()) {
+          trackingInput.value = val.tracking_no;
+          trackingInput.style.background = '#f0fdf4';
+          setTimeout(() => trackingInput.style.background = '', 1500);
+        }
+        console.log(`[自动填充] ✅ 归一化匹配: "${orderNo}" → "${key}"`);
         return;
       }
     }

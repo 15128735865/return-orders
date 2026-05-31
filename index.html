@@ -693,17 +693,17 @@ async function uploadExcelToServer(file, target, filename) {
 async function uploadExcelFile(index, input) {
   const file = input.files[0];
   if (!file) return;
-  showToast('正在上传...');
+  toast('正在上传...');
   try {
     const result = await uploadExcelToServer(file, String(index), file.name);
     if (result.ok) {
-      showToast(`${result.filename} 上传成功，自动导入中...`);
+      toast(`${result.filename} 上传成功，自动导入中...`);
       loadExcelConfig();
     } else {
-      showToast('上传失败: ' + (result.error || '未知错误'));
+      toast('上传失败: ' + (result.error || '未知错误'));
     }
   } catch (e) {
-    showToast('上传失败: ' + e.message);
+    toast('上传失败: ' + e.message);
   }
   input.value = '';
 }
@@ -711,17 +711,17 @@ async function uploadExcelFile(index, input) {
 async function uploadNewExcel(input) {
   const file = input.files[0];
   if (!file) return;
-  showToast('正在上传...');
+  toast('正在上传...');
   try {
     const result = await uploadExcelToServer(file, '', file.name);
     if (result.ok) {
-      showToast(`${result.filename} 上传成功，已加入监控并自动导入`);
+      toast(`${result.filename} 上传成功，已加入监控并自动导入`);
       loadExcelConfig();
     } else {
-      showToast('上传失败: ' + (result.error || '未知错误'));
+      toast('上传失败: ' + (result.error || '未知错误'));
     }
   } catch (e) {
-    showToast('上传失败: ' + e.message);
+    toast('上传失败: ' + e.message);
   }
   input.value = '';
 }

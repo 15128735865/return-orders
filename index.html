@@ -95,6 +95,9 @@ if ('serviceWorker' in navigator) {
       <button onclick="refreshOrders()" id="refreshBtn" class="btn btn-sm bg-gray-100 text-gray-500" title="刷新数据">
         <i class="fa fa-refresh"></i> <span class="hidden md:inline text-xs" id="lastRefresh"></span>
       </button>
+      <button onclick="syncImages()" id="syncBtn" class="btn btn-sm bg-green-50 text-green-600" title="同步缺失的商品图片">
+        <i class="fa fa-cloud-download"></i> <span class="hidden md:inline text-xs">同步图片</span>
+      </button>
     </div>
     <button class="btn btn-primary" onclick="showCreateModal()">
       <i class="fa fa-plus"></i> <span class="hidden md:inline">新建订单</span>
@@ -437,6 +440,42 @@ async function loadOrders() {
 }
 
 function refreshOrders() { location.reload(); }
+
+async function syncImages() {
+  const btn = document.getElementById('syncBtn');
+  const icon = btn.querySelector('i');
+  const origClass = icon.className;
+  btn.disabled = true;
+  icon.className = 'fa fa-spinner fa-spin';
+  try {
+    // 先检测有多少缺失图片的 SKU
+    const supabase = getSupabase();
+    if (!supabase) { showToast('Supabase 未连接'); return; }
+
+    // 统计缺失数
+    const { count, error } = await supabase
+      .from('buyer_mapping')
+      .select('*', { count: 'exact', head: true })
+      .not('sku', 'is', null)
+      .is('image_url', null);
+
+    if (error) throw error;
+
+    // 清除缓存，下次加载时会重新拉取
+    buyerCache = null;
+    await loadBuyerCache();
+
+    if (count === 0) {
+      showToast('所有商品图片已同步，无需更新');
+    } else {
+      showToast(`检测到 ${count} 条记录缺少图片。自动同步每天 6:00/18:00 运行，或前往 GitHub Actions 手动触发`);
+    }
+  } catch (e) {
+    showToast('检测失败：' + e.message);
+  }
+  icon.className = origClass;
+  btn.disabled = false;
+}
 
 // ========== 新建订单 ==========
 function showCreateModal() {

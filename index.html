@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="version" content="20260601-v5">
 <title>退货订单管理</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -93,7 +97,7 @@ if ('serviceWorker' in navigator) {
     <div class="flex items-center gap-2">
       <h1 class="text-lg md:text-xl font-bold text-gray-800">📦 退货订单管理</h1>
       <button onclick="refreshOrders()" id="refreshBtn" class="btn btn-sm bg-gray-100 text-gray-500" title="刷新数据">
-        <i class="fa fa-refresh"></i> <span class="hidden md:inline text-xs" id="lastRefresh"></span>
+        <i class="fa fa-refresh"></i> <span class="text-xs" id="lastRefresh"></span>
       </button>
       <button onclick="syncImages()" id="syncBtn" class="btn btn-sm bg-green-50 text-green-600" title="同步缺失的商品图片">
         <i class="fa fa-cloud-download"></i> <span class="hidden md:inline text-xs">同步图片</span>
@@ -141,13 +145,15 @@ if ('serviceWorker' in navigator) {
       <table class="w-full">
         <thead>
           <tr class="bg-gray-50 text-left text-sm text-gray-500 border-b">
-            <th class="px-4 py-3 font-medium">订单编号</th>
-            <th class="px-4 py-3 font-medium">购买账号</th>
-            <th class="px-4 py-3 font-medium">国内快递单号</th>
-            <th class="px-4 py-3 font-medium">处理策略</th>
-            <th class="px-4 py-3 font-medium">当前状态</th>
-            <th class="px-4 py-3 font-medium">更新时间</th>
-            <th class="px-4 py-3 font-medium">操作</th>
+            <th class="px-3 py-3 font-medium w-14"></th>
+            <th class="px-2 py-3 font-medium">订单编号 / 货物</th>
+            <th class="px-2 py-3 font-medium">账号</th>
+            <th class="px-2 py-3 font-medium">快递单号</th>
+            <th class="px-2 py-3 font-medium w-16">成本</th>
+            <th class="px-2 py-3 font-medium">策略</th>
+            <th class="px-2 py-3 font-medium">状态</th>
+            <th class="px-2 py-3 font-medium w-24">时间</th>
+            <th class="px-3 py-3 font-medium w-28">操作</th>
           </tr>
         </thead>
         <tbody id="tableBody"></tbody>
@@ -173,7 +179,7 @@ if ('serviceWorker' in navigator) {
     <div class="space-y-3">
       <div>
         <label class="text-sm text-gray-600 mb-1 block">订单编号 <span class="text-red-400">*</span></label>
-        <input id="createOrderNo" class="input" placeholder="输入订单编号" oninput="debounceAutoFill()">
+        <input id="createOrderNo" class="input" placeholder="输入订单编号" oninput="debounceAutoFill()" onfocus="buyerCache=null;loadBuyerCache(true).then(()=>requestAnimationFrame(renderOrders))">
       </div>
       <div>
         <label class="text-sm text-gray-600 mb-1 block">购买账号</label>
@@ -287,6 +293,11 @@ if ('serviceWorker' in navigator) {
         <button class="btn bg-purple-50 text-purple-600" onclick="syncExcel()"><i class="fa fa-file-excel-o"></i> 手动导入全部</button>
       </div>
     </div>
+
+    <div id="syncHistory" class="mt-3 border-t border-gray-100 pt-3 hidden">
+      <div class="text-xs text-gray-500 font-medium mb-1">最近同步记录</div>
+      <div id="syncHistoryList" class="text-xs text-gray-400 max-h-24 overflow-y-auto space-y-0.5"></div>
+    </div>
   </div>
 </div>
 
@@ -295,6 +306,20 @@ if ('serviceWorker' in navigator) {
 
 <script>
 // ========== Supabase ==========
+// 版本检测：强制清除旧缓存
+const APP_VERSION = '20260601-v5';
+(function checkVersion() {
+  const stored = localStorage.getItem('app_version');
+  if (stored && stored !== APP_VERSION) {
+    // 版本变化，清除所有缓存后刷新
+    localStorage.clear();
+    sessionStorage.clear();
+    location.reload(true);
+    return;
+  }
+  localStorage.setItem('app_version', APP_VERSION);
+})();
+
 const SUPABASE_URL = 'https://jlzsonjjfgojmwgghxbl.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpsenNvbmpqZmdvam13Z2doeGJsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5MTY2ODksImV4cCI6MjA5MjQ5MjY4OX0.ZjSV3guUc21Dq5KWBydFyy-Ps7sBn2FlC3Wr5srgn9U';
 
@@ -399,6 +424,7 @@ function renderOrders() {
   updateStats();
   const filtered = getFilteredOrders();
   const total = allOrders.length;
+  const cache = buyerCache || {};
 
   if (total === 0) {
     document.getElementById('emptyState').style.display = 'block';
@@ -408,12 +434,20 @@ function renderOrders() {
   }
   document.getElementById('emptyState').style.display = 'none';
 
+  // 优先使用缓存数据
+  const getAccount = o => (cache[o.order_no] && cache[o.order_no].account) || o.account || '';
+  const getTracking = o => (cache[o.order_no] && cache[o.order_no].tracking_no) || o.tracking_no || '';
+  const getCost = o => (cache[o.order_no] && cache[o.order_no].cost) || '';
+  const getImage = o => (cache[o.order_no] && cache[o.order_no].image_url) || '';
+  const getProduct = o => (cache[o.order_no] && cache[o.order_no].product_name) || '';
+  const fmtCost = v => { const n = parseFloat(v); return !isNaN(n) ? n.toFixed(2) : v; };
+
   if (window.innerWidth <= 768) {
     document.querySelector('.table-col').style.display = 'none';
     if (filtered.length === 0) {
       document.getElementById('cardsView').innerHTML = '<div class="text-center py-8 text-gray-400">没有匹配的订单</div>';
     } else {
-      renderMobileCards(filtered);
+      renderMobileCards(filtered, cache);
     }
     document.getElementById('cardsView').style.display = 'block';
     return;
@@ -422,48 +456,82 @@ function renderOrders() {
   document.getElementById('cardsView').style.display = 'none';
   document.querySelector('.table-col').style.display = 'block';
   if (filtered.length === 0) {
-    document.getElementById('tableBody').innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-400">没有匹配的订单</td></tr>';
+    document.getElementById('tableBody').innerHTML = '<tr><td colspan="9" class="text-center py-8 text-gray-400">没有匹配的订单</td></tr>';
     return;
   }
-  document.getElementById('tableBody').innerHTML = filtered.map(o => `
+  document.getElementById('tableBody').innerHTML = filtered.map(o => {
+    const img = getImage(o);
+    const prod = getProduct(o);
+    const cost = getCost(o);
+    const tracking = getTracking(o);
+    return `
     <tr class="border-b border-gray-50 hover:bg-gray-50/50">
-      <td class="px-4 py-3 font-medium text-gray-800 text-sm">${escHtml(o.order_no)}</td>
-      <td class="px-4 py-3 text-sm text-gray-600">${escHtml(o.account || '—')}</td>
-      <td class="px-4 py-3 text-sm">${o.tracking_no ? `<a href="https://www.baidu.com/s?wd=${encodeURIComponent(o.tracking_no)}" target="_blank" class="tracking-link">${escHtml(o.tracking_no)}</a>` : `<span class="text-gray-400">—</span>`}</td>
-      <td class="px-4 py-3"><span class="badge ${getStrategyBadgeClass(o.strategy)}">${o.strategy}</span></td>
-      <td class="px-4 py-3"><span class="badge ${getStatusBadgeClass(o.status)}">${o.status}</span></td>
-      <td class="px-4 py-3 text-sm text-gray-400">${formatTime(o.updated_at)}</td>
-      <td class="px-4 py-3">
+      <td class="px-3 py-2.5">
+        ${img ? `<img src="${img.replace(/"/g,'&quot;')}" class="w-9 h-9 rounded-lg object-cover border border-gray-100" onerror="this.parentElement.innerHTML='<div class=\\'w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center\\'><i class=\\'fa fa-image text-gray-300 text-xs\\'></i></div>'" loading="lazy">` : `<div class="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center"><i class="fa fa-image text-gray-300 text-xs"></i></div>`}
+      </td>
+      <td class="px-2 py-2.5">
+        <div class="font-medium text-gray-800 text-sm">${escHtml(o.order_no)}</div>
+        ${prod ? `<div class="text-xs text-gray-400 truncate max-w-[180px]" title="${escHtml(prod)}">${escHtml(prod.length > 20 ? prod.slice(0,20)+'...' : prod)}</div>` : ''}
+      </td>
+      <td class="px-2 py-2.5 text-sm text-gray-600 max-w-[100px] truncate" title="${escHtml(getAccount(o) || '')}">${escHtml(getAccount(o) || '—')}</td>
+      <td class="px-2 py-2.5 text-sm">${tracking ? `<a href="https://www.baidu.com/s?wd=${encodeURIComponent(tracking)}" target="_blank" class="tracking-link text-xs">${escHtml(tracking.length > 18 ? tracking.slice(0,18)+'...' : tracking)}</a>` : `<span class="text-gray-300">—</span>`}</td>
+      <td class="px-2 py-2.5 text-sm font-mono text-gray-700">${cost ? `¥${fmtCost(cost)}` : `<span class="text-gray-300">—</span>`}</td>
+      <td class="px-2 py-2.5"><span class="badge ${getStrategyBadgeClass(o.strategy)} text-xs">${o.strategy}</span></td>
+      <td class="px-2 py-2.5"><span class="badge ${getStatusBadgeClass(o.status)} text-xs">${o.status}</span></td>
+      <td class="px-2 py-2.5 text-xs text-gray-400 whitespace-nowrap">${formatTime(o.updated_at)}</td>
+      <td class="px-3 py-2.5">
         <div class="flex gap-1">
-          <button class="btn btn-sm bg-blue-50 text-blue-600" onclick="showStatusModal(${o.id})">状态</button>
-          <button class="btn btn-sm bg-indigo-50 text-indigo-600" onclick="showDetailModal(${o.id})">详情</button>
-          <button class="btn btn-sm bg-red-50 text-red-500" onclick="showDeleteModal(${o.id})"><i class="fa fa-trash"></i></button>
+          <button class="btn btn-sm bg-blue-50 text-blue-600 text-xs" onclick="showStatusModal(${o.id})">状态</button>
+          <button class="btn btn-sm bg-indigo-50 text-indigo-600 text-xs" onclick="showDetailModal(${o.id})">详情</button>
+          <button class="btn btn-sm bg-red-50 text-red-500 text-xs" onclick="showDeleteModal(${o.id})"><i class="fa fa-trash"></i></button>
         </div>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
-function renderMobileCards(filtered) {
-  document.getElementById('cardsView').innerHTML = filtered.map(o => `
-    <div class="order-card">
-      <div class="card-row">
-        <span class="card-label">订单</span>
-        <span class="card-value" style="font-weight:600;color:#1e293b;">${escHtml(o.order_no)}</span>
-        <span class="badge ${getStrategyBadgeClass(o.strategy)}" style="margin-left:auto;">${o.strategy}</span>
+function renderMobileCards(filtered, cache) {
+  cache = cache || buyerCache || {};
+  const getAccount = o => (cache[o.order_no] && cache[o.order_no].account) || o.account || '';
+  const getTracking = o => (cache[o.order_no] && cache[o.order_no].tracking_no) || o.tracking_no || '';
+  const getCost = o => (cache[o.order_no] && cache[o.order_no].cost) || '';
+  const getImage = o => (cache[o.order_no] && cache[o.order_no].image_url) || '';
+  const getProduct = o => (cache[o.order_no] && cache[o.order_no].product_name) || '';
+  const fmtCost = v => { const n = parseFloat(v); return !isNaN(n) ? n.toFixed(2) : v; };
+  document.getElementById('cardsView').innerHTML = filtered.map(o => {
+    const img = getImage(o);
+    const prod = getProduct(o);
+    const cost = getCost(o);
+    const tracking = getTracking(o);
+    const account = getAccount(o);
+    return `
+    <div class="order-card" style="display:flex;gap:12px;">
+      <div style="flex-shrink:0;">
+        ${img ? `<img src="${img.replace(/"/g,'&quot;')}" style="width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid #f1f5f9;" onerror="this.parentElement.innerHTML='<div style=\\'width:44px;height:44px;border-radius:10px;background:#f8fafc;display:flex;align-items:center;justify-content:center;border:1px solid #f1f5f9;\\'><i class=\\'fa fa-image\\' style=\\'color:#cbd5e1;font-size:14px;\\'></i></div>'" loading="lazy">` : `<div style="width:44px;height:44px;border-radius:10px;background:#f8fafc;display:flex;align-items:center;justify-content:center;border:1px solid #f1f5f9;"><i class="fa fa-image" style="color:#cbd5e1;font-size:14px;"></i></div>`}
       </div>
-      ${o.account ? `<div class="card-row"><span class="card-label">账号</span><span class="card-value">${escHtml(o.account)}</span></div>` : ''}
-      ${o.tracking_no ? `<div class="card-row"><span class="card-label">快递</span><a href="https://www.baidu.com/s?wd=${encodeURIComponent(o.tracking_no)}" target="_blank" class="tracking-link" style="font-family:monospace;">${escHtml(o.tracking_no)}</a></div>` : ''}
-      <div class="card-row">
-        <span class="card-label">状态</span>
-        <span class="badge ${getStatusBadgeClass(o.status)}">${o.status}</span>
-        <span style="margin-left:auto;font-size:12px;color:#94a3b8;">${formatTime(o.updated_at)}</span>
+      <div style="flex:1;min-width:0;">
+        <div class="card-row" style="margin-bottom:4px;">
+          <span class="card-value" style="font-weight:600;color:#1e293b;font-size:14px;">${escHtml(o.order_no)}</span>
+          <span class="badge ${getStatusBadgeClass(o.status)}" style="margin-left:auto;font-size:11px;">${o.status}</span>
+        </div>
+        ${prod ? `<div style="font-size:12px;color:#94a3b8;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(prod)}</div>` : ''}
+        <div style="display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;margin-bottom:4px;">
+          ${account ? `<span><span style="color:#94a3b8;">账号</span> <span style="color:#475569;">${escHtml(account.length > 12 ? account.slice(0,12)+'...' : account)}</span></span>` : ''}
+          ${cost ? `<span><span style="color:#94a3b8;">成本</span> <span style="color:#0f172a;font-weight:500;">¥${fmtCost(cost)}</span></span>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <span class="badge ${getStrategyBadgeClass(o.strategy)}" style="font-size:11px;">${o.strategy}</span>
+          ${tracking ? `<a href="https://www.baidu.com/s?wd=${encodeURIComponent(tracking)}" target="_blank" class="tracking-link" style="font-family:monospace;font-size:11px;">${escHtml(tracking.length > 22 ? tracking.slice(0,22)+'...' : tracking)}</a>` : ''}
+          <span style="margin-left:auto;font-size:11px;color:#94a3b8;">${formatTime(o.updated_at)}</span>
+        </div>
+        <div class="card-actions" style="margin-top:6px;padding-top:8px;">
+          <button class="btn btn-sm flex-1" style="background:#eff6ff;color:#2563eb;font-size:12px;" onclick="showStatusModal(${o.id})">状态</button>
+          <button class="btn btn-sm" style="background:#eef2ff;color:#4f46e5;font-size:12px;" onclick="showDetailModal(${o.id})">详情</button>
+          <button class="btn btn-sm" style="background:#fef2f2;color:#dc2626;font-size:12px;" onclick="showDeleteModal(${o.id})"><i class="fa fa-trash"></i></button>
+        </div>
       </div>
-      <div class="card-actions">
-        <button class="btn btn-sm flex-1" style="background:#eff6ff;color:#2563eb;" onclick="showStatusModal(${o.id})">状态</button>
-        <button class="btn btn-sm" style="background:#eef2ff;color:#4f46e5;" onclick="showDetailModal(${o.id})">详情</button>
-        <button class="btn btn-sm" style="background:#fef2f2;color:#dc2626;" onclick="showDeleteModal(${o.id})"><i class="fa fa-trash"></i></button>
-      </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // ========== 数据加载 ==========
@@ -488,14 +556,14 @@ async function loadOrders() {
     allOrders = data || [];
     const now = new Date();
     const ts = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
-    document.getElementById('lastRefresh').textContent = ts;
+    document.getElementById('lastRefresh').textContent = ts + ' · v' + APP_VERSION;
     renderOrders();
   } catch (e) {
     document.getElementById('loading').innerHTML = '<div class="text-red-400">网络错误，请检查网络后刷新</div>';
   }
 }
 
-function refreshOrders() { location.reload(); }
+function refreshOrders() { localStorage.removeItem(BUYER_CACHE_KEY); location.reload(true); }
 
 const LOCAL_SYNC_URL = 'http://localhost:8765';
 
@@ -573,7 +641,8 @@ async function syncImages() {
             status.className = 'text-xs text-green-600 mb-3';
             // 刷新缓存
             buyerCache = null;
-            await loadBuyerCache();
+            await loadBuyerCache(true);
+            requestAnimationFrame(renderOrders);
             appendLog('');
             appendLog('✅ 图片缓存已刷新');
           } else if (data.type === 'error') {
@@ -655,16 +724,34 @@ async function loadExcelConfig() {
               <i class="fa fa-upload"></i>
               <input type="file" accept=".xlsx,.xls" style="display:none" onchange="uploadExcelFile(${i}, this)">
             </label>
-            <button class="text-gray-400 hover:text-red-500" onclick="removeExcelPath(${i})" title="移除"><i class="fa fa-times"></i></button>
+            <button class="text-gray-400 hover:text-red-500" data-path="${escHtml(f.path)}" onclick="removeExcelPath(this.dataset.path)" title="移除"><i class="fa fa-times"></i></button>
           </div>
         </div>
       `).join('');
     }
 
-    const resp2 = await fetch(`${LOCAL_SYNC_URL}/status`);
-    const st = await resp2.json();
-    const watching = (st.watching || []).filter(w => w.exists);
-    status.textContent = `监控中: ${watching.length} 个文件 · 每 5 秒检测一次`;
+    const watching = files.filter(f => f.exists);
+    status.textContent = `监控中: ${watching.length} 个文件 · 每 3 秒检测一次`;
+
+    // 加载同步历史
+    try {
+      const logResp = await fetch(`${LOCAL_SYNC_URL}/sync-log`);
+      const logData = await logResp.json();
+      const logs = logData.log || [];
+      if (logs.length > 0) {
+        document.getElementById('syncHistory').classList.remove('hidden');
+        const historyList = document.getElementById('syncHistoryList');
+        historyList.innerHTML = logs.slice(0, 8).map(l => {
+          const icon = l.status === 'ok' ? '✅' : l.status === 'error' ? '❌' : '🔄';
+          const source = l.source === 'auto' ? '自动' : '手动';
+          let detail = '';
+          if (l.new || l.updated) {
+            detail = ` (新增${l.new || 0} 更新${l.updated || 0})`;
+          }
+          return `<div>${icon} ${l.time} [${source}] ${l.file}${detail}</div>`;
+        }).join('');
+      }
+    } catch (e) {}
   } catch (e) {
     list.innerHTML = '<div class="text-xs text-red-400 text-center py-4">无法连接本地服务</div>';
     status.textContent = '⚠️ 服务未连接';
@@ -726,23 +813,14 @@ async function uploadNewExcel(input) {
   input.value = '';
 }
 
-async function removeExcelPath(index) {
+async function removeExcelPath(path) {
   try {
-    const resp = await fetch(`${LOCAL_SYNC_URL}/excel-config`, {
+    await fetch(`${LOCAL_SYNC_URL}/excel-config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'get' })
+      body: JSON.stringify({ action: 'remove', path: path })
     });
-    const config = await resp.json();
-    const files = config.excel_files || [];
-    if (files[index]) {
-      await fetch(`${LOCAL_SYNC_URL}/excel-config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'remove', path: files[index].path })
-      });
-      loadExcelConfig();
-    }
+    loadExcelConfig();
   } catch (e) {
     alert('操作失败');
   }
@@ -806,7 +884,8 @@ async function syncExcel(filepath) {
             status.textContent = '导入完成！';
             status.className = 'text-xs text-green-600 mb-3';
             buyerCache = null;
-            await loadBuyerCache();
+            await loadBuyerCache(true);
+            requestAnimationFrame(renderOrders);
             addLog('✅ 买家缓存已更新');
           }
           if (data.type === 'error') {
@@ -836,39 +915,77 @@ function hideCreateModal() { document.getElementById('createModal').style.displa
 // 自动匹配购买人
 let buyerCache = null;
 let buyerCacheLoading = false;
+const BUYER_CACHE_KEY = 'return_app_buyer_cache';
+const BUYER_CACHE_TIME_KEY = 'return_app_buyer_cache_time';
+const CACHE_TTL = 20 * 1000; // 20 秒，localStorage 有效期
 
-async function loadBuyerCache() {
-  if (buyerCache) return buyerCache;
+async function loadBuyerCache(forceRefresh = false) {
+  // 不强制刷新时，直接返回内存缓存
+  if (buyerCache && !forceRefresh) return buyerCache;
+
+  // 等待正在进行的加载
   if (buyerCacheLoading) {
     let retries = 0;
     while (buyerCacheLoading && retries < 50) {
       await new Promise(r => setTimeout(r, 200));
       retries++;
     }
-    return buyerCache || {};
+    // 如果等待后缓存已就绪且不强制刷新，直接返回
+    if (buyerCache && !forceRefresh) return buyerCache;
   }
 
+  // 不强制刷新时，优先使用 localStorage 快速显示
+  if (!forceRefresh) {
+    try {
+      const cachedTime = localStorage.getItem(BUYER_CACHE_TIME_KEY);
+      const cachedData = localStorage.getItem(BUYER_CACHE_KEY);
+      if (cachedTime && cachedData) {
+        const age = Date.now() - parseInt(cachedTime);
+        if (age < CACHE_TTL) {
+          buyerCache = JSON.parse(cachedData);
+          // 缓存过半时，后台静默拉取最新数据
+          if (age > CACHE_TTL / 2) {
+            setTimeout(() => loadBuyerCache(true), 500);
+          }
+          return buyerCache;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // forceRefresh 或缓存过期：直接从 Supabase 拉取最新数据
   buyerCacheLoading = true;
   try {
     const supabase = getSupabase();
     if (!supabase) {
-      console.log('[自动填充] Supabase 未就绪');
-      return {};
+      // 降级到 localStorage
+      if (!buyerCache) {
+        try {
+          const d = localStorage.getItem(BUYER_CACHE_KEY);
+          if (d) buyerCache = JSON.parse(d);
+        } catch (e) {}
+      }
+      return buyerCache || {};
     }
 
-    // 分页获取全部记录
     let allData = [];
     let from = 0;
     const pageSize = 1000;
     while (true) {
       const { data, error } = await supabase
         .from('buyer_mapping')
-        .select('order_no,account,tracking_no,order_date,product_name,cost,sku,image_url')
+        .select('order_no,account,tracking_no,product_name,cost,image_url,order_date')
         .range(from, from + pageSize - 1)
         .order('id', { ascending: true });
       if (error) {
-        console.error('[自动填充] 加载买家缓存失败:', error);
-        return {};
+        console.error('[缓存] 加载失败:', error);
+        if (!buyerCache) {
+          try {
+            const d = localStorage.getItem(BUYER_CACHE_KEY);
+            if (d) buyerCache = JSON.parse(d);
+          } catch (e) {}
+        }
+        return buyerCache || {};
       }
       if (!data || data.length === 0) break;
       allData = allData.concat(data);
@@ -876,29 +993,41 @@ async function loadBuyerCache() {
       from += pageSize;
     }
 
-    buyerCache = {};
+    const newCache = {};
     allData.forEach(d => {
       const key = (d.order_no || '').trim();
       if (key) {
-        buyerCache[key] = {
+        newCache[key] = {
           account: (d.account || '').trim(),
           tracking_no: (d.tracking_no || '').trim(),
-          order_date: (d.order_date || '').trim(),
           product_name: (d.product_name || '').trim(),
           cost: (d.cost || '').trim(),
-          sku: (d.sku || '').trim(),
-          image_url: (d.image_url || '').trim()
+          image_url: (d.image_url || '').trim(),
+          order_date: (d.order_date || '').trim()
         };
       }
     });
+    buyerCache = newCache;
+
+    // 同步到 localStorage
+    try {
+      localStorage.setItem(BUYER_CACHE_KEY, JSON.stringify(buyerCache));
+      localStorage.setItem(BUYER_CACHE_TIME_KEY, String(Date.now()));
+    } catch (e) {}
+
     const withTracking = allData.filter(d => d.tracking_no).length;
-    const withDetail = allData.filter(d => d.product_name || d.cost).length;
     const withImage = allData.filter(d => d.image_url).length;
-    console.log(`[自动填充] 买家缓存已加载，共 ${Object.keys(buyerCache).length} 条（含快递: ${withTracking}, 含详情: ${withDetail}, 含图片: ${withImage}）`);
+    console.log(`[缓存] 已加载 ${Object.keys(buyerCache).length} 条（快递: ${withTracking}, 图片: ${withImage}）`);
     return buyerCache;
   } catch (e) {
-    console.error('[自动填充] 加载买家缓存异常:', e);
-    return {};
+    console.error('[缓存] 异常:', e);
+    if (!buyerCache) {
+      try {
+        const d = localStorage.getItem(BUYER_CACHE_KEY);
+        if (d) buyerCache = JSON.parse(d);
+      } catch (e2) {}
+    }
+    return buyerCache || {};
   } finally {
     buyerCacheLoading = false;
   }
@@ -961,8 +1090,27 @@ async function autoFillBuyer() {
     }
   }
 }
-// 预加载缓存（延迟确保 Supabase SDK 就绪）
-setTimeout(() => { loadBuyerCache().catch(e => console.error('[自动填充] 预加载失败:', e)); }, 500);
+// 预加载缓存（延迟确保 Supabase SDK 就绪），加载完立即刷新列表
+setTimeout(() => { loadBuyerCache().then(() => { requestAnimationFrame(renderOrders); }).catch(e => console.error('[自动填充] 预加载失败:', e)); }, 500);
+// 每 10 秒自动刷新缓存（优先 localStorage，过期则查 Supabase）
+let _autoRefreshTimer = null;
+function scheduleAutoRefresh() {
+  clearInterval(_autoRefreshTimer);
+  _autoRefreshTimer = setInterval(() => {
+    if (document.hidden) return; // 页面不可见时跳过，省电
+    buyerCache = null;
+    loadBuyerCache(true).then(() => { requestAnimationFrame(renderOrders); }).catch(() => {});
+  }, 10000);
+}
+scheduleAutoRefresh();
+
+// 页面恢复可见时立即强制刷新
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    buyerCache = null;
+    loadBuyerCache(true).then(() => { requestAnimationFrame(renderOrders); }).catch(() => {});
+  }
+});
 
 async function createOrder() {
   const orderNo = document.getElementById('createOrderNo').value.trim();
@@ -1033,10 +1181,10 @@ function showDetailModal(orderId) {
 
   const rows = [
     { label: '订单编号', value: order.order_no || '—' },
-    { label: '购买账号', value: order.account || (info && info.account) || '—' },
+    { label: '购买账号', value: (info && info.account) || order.account || '—' },
     { label: '处理策略', value: order.strategy || '—', badge: getStrategyBadgeClass(order.strategy) },
     { label: '当前状态', value: order.status || '—', badge: getStatusBadgeClass(order.status) },
-    { label: '国内快递', value: order.tracking_no || (info && info.tracking_no) || '—', isTracking: true },
+    { label: '国内快递', value: (info && info.tracking_no) || order.tracking_no || '—', isTracking: true },
   ];
 
   // Excel 匹配的详细信息
@@ -1066,7 +1214,7 @@ function showDetailModal(orderId) {
         <span class="text-xs text-gray-400 block mb-1">商品图片</span>`;
       if (r.value) {
         html += `<div style="background:#f8fafc;border-radius:8px;overflow:hidden;display:flex;justify-content:center;">
-          <img src="${escHtml(r.value)}" alt="商品图片" style="max-width:100%;max-height:280px;object-fit:contain;" onerror="this.parentElement.innerHTML='<div style=\\'padding:40px;color:#94a3b8;text-align:center;\\'><i class=\\'fa fa-image\\' style=\\'font-size:24px;margin-bottom:6px;display:block;\\'></i>图片加载失败</div>'">
+          <img src="${r.value.replace(/"/g,'&quot;')}" alt="商品图片" style="max-width:100%;max-height:280px;object-fit:contain;" onerror="this.parentElement.innerHTML='<div style=\\'padding:40px;color:#94a3b8;text-align:center;\\'><i class=\\'fa fa-image\\' style=\\'font-size:24px;margin-bottom:6px;display:block;\\'></i>图片加载失败</div>'">
         </div>`;
       } else {
         html += `<div style="background:#f8fafc;border:2px dashed #e2e8f0;border-radius:8px;height:100px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;">

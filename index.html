@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="version" content="20260601-v6">
+<meta name="version" content="20260601-v7">
 <title>退货订单管理</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -307,7 +307,7 @@ if ('serviceWorker' in navigator) {
 <script>
 // ========== Supabase ==========
 // 版本检测：强制清除旧缓存
-const APP_VERSION = '20260601-v6';
+const APP_VERSION = '20260601-v7';
 (function checkVersion() {
   const stored = localStorage.getItem('app_version');
   if (stored && stored !== APP_VERSION) {
@@ -1299,7 +1299,17 @@ async function confirmDelete() {
 
 // ========== 搜索监听 ==========
 document.getElementById('searchInput').addEventListener('input', renderOrders);
-window.addEventListener('resize', renderOrders);
+let _prevWidth = window.innerWidth;
+window.addEventListener('resize', () => {
+  const w = window.innerWidth;
+  const wasMobile = _prevWidth <= 768;
+  const isMobile = w <= 768;
+  _prevWidth = w;
+  // 仅在桌面/移动端布局切换时才重绘，避免滑动时地址栏变化触发重建
+  if (wasMobile !== isMobile) {
+    smartRender();
+  }
+});
 
 // ========== 启动 ==========
 setTimeout(() => {
